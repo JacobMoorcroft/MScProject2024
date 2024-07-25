@@ -1,0 +1,10 @@
+This study used data requested from a larger study conducted by von Bastian et al. (2022) under
+collaboration between the University of Sheffield, University of Montreal, and Medical School of 
+Hamburg. The author of this thesis does not have permission to share data or materials. Details of 
+the study protocol, links to the OSF pre-registration, and avenues to contact the researchers are 
+available at the below reference.
+
+von Bastian, C. C., Reinhartz, A., Udale, R. C., Grégoire, S., Essounni, M., Belleville, S., & 
+Strobach, T. (2022b). Mechanisms of processing speed training and transfer effects across the adult 
+lifespan: protocol of a multi-site cognitive training study. BMC Psychology, 10, 168. 
+https://doi.org/10.1186/s40359-022-00877-7 
