@@ -1,41 +1,39 @@
+#set reproducible seed for analyses
 set.seed(123)
 
 #clean environment
 rm(list=ls())
 
-#packages
-#libraries<-c("here", "tidyverse", "lmerTest", "lavaan", "semTools", "purrr", "tidymodels", "semPlot", "finalfit", "GGally", "car", "bestNormalize", "performance")
+#necessary packages: should install be required, please remove annotations and run these two lines :)
+#libraries<-c("here", "ance")
 #install.packages(libraries, repos="http://cran.rstudio.com")
 
-library(here)
-library(tidyverse)
-library(lmerTest)
-library(ggplot2)
-library(gridExtra)
-library(purrr)
-library(tidyr)
-library(MuMIn)
-library(finalfit)
+library(here)          #for loading in raw data
+library(Matrix)        #for LMEM estimation*
+library(lme4)          #*
+library(lmerTest)      #*
+library(ggplot2)       #for LMEM visualisations
+library(tidyverse)     #for all visualisations
+library(naniar)        #for missingness visualisation
+
+library(patchwork)
 library(GGally)
-library(car)
-library(performance)
+library(finalfit)
 
-################################################################################
-################################ RAW DATA ######################################
-################################################################################
+############################################################ LOADING IN RAW DATA ##################################################################################
 
-#demographic data & attrition
+#demographic data, cognition-related beliefs (CRBs), & inclusions filter
 home_survey<-read.csv(here("raw_data","survey_home.csv"))
 lab_survey<-read.csv(here("raw_data","survey_lab.csv"))
 filter<-read.csv(here("raw_data","tracker_inclusions.csv"))
 
-#training and near transfer
+#training and near transfer assessments
 simple_data<-read.csv(here("raw_data","assessment_training_simple.csv"))
 choice_data<-read.csv(here("raw_data","assessment_training_choice.csv"))
 switch_data<-read.csv(here("raw_data","assessment_training_switch.csv"))
 dual_data<-read.csv(here("raw_data","assessment_training_dual.csv"))
 
-#far transfer
+#far transfer measures
 wm_updating<-read.csv(here("raw_data","assessment_wm_updating.csv"))
 wm_binding<-read.csv(here("raw_data","assessment_wm_binding.csv"))
 wm_reproduction<-read.csv(here("raw_data","assessment_wm_reproduction.csv"))
@@ -43,23 +41,21 @@ reas_rapm<-read.csv(here("raw_data","assessment_reas_rapm.csv"))
 reas_lettersets<-read.csv(here("raw_data","assessment_reas_lettersets.csv"))
 reas_paperfolding<-read.csv(here("raw_data","assessment_reas_paperfolding.csv"))
 
-################################################################################
-############################### PROCESSING #####################################
-################################################################################
+############################################################## AGGREGATING DATA ###################################################################################
 
-# cognition-related beliefs ######################################################################################################################################
+#extracting and aggregating data on demographics and CRBs
 
 sex_age_grit<-home_survey %>%
   select(code,group,site,demo.sex,demo.age.years,demo.age.group,demo.gender,grit)
 
 gse_tis<-lab_survey %>%
   select(code,sessionId,gse,tis) %>%
-  filter(sessionId==1) #only session 1 used; idea of CRB as stable
+  filter(sessionId==1) #only session 1 data used for mindset and self-efficacy; as Grit was only measured pre-study, this ensured all CRBs scores were pre-training
 
 crb<-inner_join(sex_age_grit,
                 gse_tis %>% select(code,gse,tis),by="code")
 
-######### training and near transfer ######################################
+#extracting processing speed measures
 
 process<-function(data, suffix) {data %>%
     select(code,assessment,material,speed) %>%
@@ -73,11 +69,10 @@ simple_rt<-process(simple_data, "simp")
 choice_rt<-process(choice_data, "choi")
 switch_data<-switch_data %>% rename(speed=speed.switch)
 switch_rt<-process(switch_data, "swit")
-
-dual_data$speed<-pmax(dual_data$speed.response1,dual_data$speed.response2) #slower RT preferenced
+dual_data$speed<-pmax(dual_data$speed.response1,dual_data$speed.response2) #slower RT preferenced, as this represented RT after classifying stimulus on both dimensions 
 dual_rt<-process(dual_data, "dual")
 
-# far transfer #####################################################################################################################################################
+#extracting reasoning and working memory measures
 
 f_t_dfs<-list(reas_ls=reas_lettersets,reas_pf=reas_paperfolding,reas_ra=reas_rapm,
               work_bi=wm_binding,work_re=wm_reproduction,work_up=wm_updating)
@@ -89,7 +84,7 @@ f_t_outcomes<-list(reas_ls="assessment.reas.lettersets.score",
                    work_re="wm.reproduction.error",
                    work_up="wm.updating.accuracy")
 
-process2<-function(data, f_t_outcome) {data %>%
+process2<-function(data, f_t_outcome) {data %>% #create function to process all far transfer data into a format which can be aggregated
     select(code,assessment,!!sym(f_t_outcome)) %>%
     rename(sessionId=assessment)}
 
@@ -102,7 +97,7 @@ work_bi<-processed_ft$work_bi
 work_re<-processed_ft$work_re
 work_up<-processed_ft$work_up
 
-# cognition-related beliefs, skill enhancement and near/far transfer ###############################################################################################
+#aggregation of all raw data
 raw_data<-crb %>%
   full_join(simple_rt, by=c("code")) %>%
   full_join(choice_rt, by=c("code","sessionId")) %>%
@@ -115,32 +110,39 @@ raw_data<-crb %>%
   full_join(work_up, by=c("code","sessionId")) %>%
   full_join(work_re, by=c("code","sessionId"))
 
-raw_data%>%
-  count(sessionId) #422 pretest, 398 posttest, 388 follow-up
+################################################################ CLEANING DATA ####################################################################################
 
-#create filter
+raw_data%>%
+  count(sessionId) #there is an inconsistent amount of participants at each time-point (attrition): n=422 pretest, n=398 posttest, n=388 follow-up, n=4 unlabelled
+
+#first filter - only participants who had completed at least six training sessions were retained
 inclusions<-filter$code[filter$t6Complete == "Y"]
 
 processed_data<-raw_data %>%
   filter(code %in% inclusions)
 
-processed_data$sessionId=recode(processed_data$sessionId, "'follow-up'='followup'") 
+processed_data$sessionId=recode(processed_data$sessionId, "follow-up" = "followup") #corrects errors otherwise produced by '-' in 'follow-up'
 
 #check for missing data
-table(is.na(processed_data)) #229 values missing
-pps_missing_data<-unique(processed_data$code[!complete.cases(processed_data)]) #32 participants have missing values
+table(is.na(processed_data)) #229 missing observations
+pps_missing_data<-unique(processed_data$code[!complete.cases(processed_data)]) #32 participants have at least one missing observation
 
+#missing values map
+filepath=here("figs/missing_value_plot.png")
+png(filepath,width=800,height=570)
 processed_data %>%
-  missing_plot() + labs(x = "Observation", y = "Variable", title = "Missingness Plot for Necessary Variables") + theme(plot.title = element_text(hjust = 0.5, size = 16, face = "bold")) +
+  missing_plot()+labs(x="Observation", y="Variable", title="Missing Values Map for Necessary Variables") + theme(plot.title=element_text(hjust=0.5, size=16, face="bold")) +
   scale_y_discrete(labels=c("Working Memory: reproduction error","Working Memory: updating accuracy","Working Memory: discrimination parameter","Reasoning: matrix reasoning",
                             "Reasoning: paperfolding","Reasoning: lettersets","Dual: shapes","Dual: numbers","Dual: drawings","Switching: shapes","Switching: numbers","Switching: drawings",
                             "Choice: shapes","Choice: numbers","Choice: drawings","Simple: shapes","Simple: numbers","Simple: drawings","Assessment Time-Point","Mindset","Self-Efficacy",
-                            "Grit","Gender","Age-group","Age","Sex","Cognitive Site","Training Group","Participant Code")) #visually, missingness is limited to a small amount of participants and does not appear to be systematic
- 
-processed_data<-processed_data[!processed_data$code %in% pps_missing_data, ] #removed all data for those with missing values
+                            "Grit","Gender","Age-group","Age","Sex","Cognitive Site","Training Group","Participant Code"))
+dev.off() #missingness is limited to a small amount of participants and does not appear to be systematic to any group, stimuli, material or otherwise included variable
+
+processed_data<-processed_data[!processed_data$code %in% pps_missing_data, ] #removed all data for participants with missing values
 
 #additional check for missing sessions for each participant
 processed_data%>% count(sessionId) #1 participant missing session 3
+
 #identifies and removes all data for this participant
 sessions<-processed_data %>%
   group_by(code) %>%
@@ -151,22 +153,27 @@ complete<-sessions %>%
 processed_data<-processed_data %>%
   filter(code %in% complete) #356 remaining participants
 
-processed_data%>% count(sessionId)
-rm(list=setdiff(ls(), c("processed_data","crb")))
-processed_data%>% count(group) #95 simple, 89 choice, 88 switch, 84 dual
+rm(list=setdiff(ls(), c("processed_data","crb"))) #cleans environment
 
 #final demographic data
-mean((processed_data$demo.age.years))# 48.62
-range((processed_data$demo.age.years))# 18-85
-sd((processed_data$demo.age.years))# 18.13
-processed_data%>%
-  count(demo.age.group) # 146 middle-aged, 80 older, 130 younger
-processed_data%>%
-  count(demo.gender) # 155 male, 200 female, 1 prefer not to say
-processed_data%>%
-  count(site) # 115 Hamburg, 116 Montreal, 125 Sheffield
+mean((processed_data$demo.age.years)) #48.62
+range((processed_data$demo.age.years)) #18-85
+sd((processed_data$demo.age.years)) #18.13
 
-###################### analysis preparation ########################################################################
+processed_data%>% count(group) #/3 (per session) = 95 simple, 89 choice, 88 switch, 84 dual
+processed_data%>% count(demo.age.group) #/3 = 146 middle-aged, 80 older, 130 younger
+processed_data%>% count(demo.gender) #/3 = 155 male, 200 female, 1 prefer not to say
+processed_data%>% count(site) #/3 = 115 Hamburg, 116 Montreal, 125 Sheffield
+
+
+
+
+
+
+
+
+
+
 
 ########################################################## SIMPLE #####################################################################
 
