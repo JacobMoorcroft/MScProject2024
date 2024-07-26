@@ -12,13 +12,13 @@ library(here)          #for loading in raw data
 library(Matrix)        #for LMEM estimation*
 library(lme4)          #*
 library(lmerTest)      #*
-library(ggplot2)       #for LMEM visualisations
+library(ggplot2)       #for LMEM visualisations**
+library(GGally)        #**
 library(tidyverse)     #for all visualisations
-library(naniar)        #for missingness visualisation
+library(finalfit)      #for missingness visualisation
+library(car)           #for multicollinearity checks
+library(performance)   #for model evaluation
 
-library(patchwork)
-library(GGally)
-library(finalfit)
 
 ############################################################ LOADING IN RAW DATA ##################################################################################
 
@@ -40,6 +40,10 @@ wm_reproduction<-read.csv(here("raw_data","assessment_wm_reproduction.csv"))
 reas_rapm<-read.csv(here("raw_data","assessment_reas_rapm.csv"))
 reas_lettersets<-read.csv(here("raw_data","assessment_reas_lettersets.csv"))
 reas_paperfolding<-read.csv(here("raw_data","assessment_reas_paperfolding.csv"))
+
+
+
+
 
 ############################################################## AGGREGATING DATA ###################################################################################
 
@@ -110,6 +114,9 @@ raw_data<-crb %>%
   full_join(work_up, by=c("code","sessionId")) %>%
   full_join(work_re, by=c("code","sessionId"))
 
+
+
+
 ################################################################ CLEANING DATA ####################################################################################
 
 raw_data%>%
@@ -168,14 +175,9 @@ processed_data%>% count(site) #/3 = 115 Hamburg, 116 Montreal, 125 Sheffield
 
 
 
+############################################################### MODEL ESTIMATION ##################################################################################
 
-
-
-
-
-
-
-########################################################## SIMPLE #####################################################################
+#################################################################### SIMPLE #######################################################################################
 
 simp_outcome<-processed_data %>%
   select(code,site,group,sessionId,demo.age.years,grit,tis,gse,simp_draw_rt,simp_numb_rt,simp_shap_rt) %>%
@@ -193,15 +195,17 @@ lmer_simp_m<-lmer(followup~group*posttest+(1|site)+(1|code)+(1|material)+demo.ag
 
 #checks
 
-#normality of residual distribution
+#non-normality of residual distribution
 qqnorm(resid(lmer_simp_b))
 qqnorm(resid(lmer_simp_e))
 qqnorm(resid(lmer_simp_m))
 
-#homoscedasticity of variance and linearity of model relationships
+#minor heteroscedasticity of variance
 plot(lmer_simp_b)
 plot(lmer_simp_e)
 plot(lmer_simp_m)
+
+#outlier removal and transformations to rectify distributional violations
 
 #remove >=200ms RTs and 3MAD+median< RTs
 pps_exclude1<-simp_outcome%>%
@@ -225,7 +229,7 @@ pps_exclude2<-simp_outcome%>%
   filter(followup > (medianRT3+MAD_3_RT3)) %>%
   pull(code) %>% unique() #4 extreme Ids
 
-extremes<-union(pps_exclude1,pps_exclude2) #4 extreme Ids
+extremes<-union(pps_exclude1,pps_exclude2)
 simp_outcome<-simp_outcome %>%
   filter(!simp_outcome$code %in% extremes) #removes all data for extreme pps (-12 observations)
 
@@ -234,7 +238,7 @@ simp_outcome$pretest<-log(simp_outcome$pretest)
 simp_outcome$posttest<-log(simp_outcome$posttest)
 simp_outcome$followup<-log(simp_outcome$followup)
 
-#re-run lines 208-210
+#re-run lines 192-194
 
 #singularity issue for maintenance model
 print(summary(lmer_simp_m),cor=F) #site variance negligible - removed
@@ -248,7 +252,7 @@ influential2<-simp_outcome$code[which(cooksD>1)]
 cooksD<-cooks.distance(lmer_simp_m)
 influential3<-simp_outcome$code[which(cooksD>1)]
 influential<-union(influential1,influential2)
-influential<-union(influential,influential3) #12 influential outlying observations; 7 pps
+influential<-union(influential,influential3) #12 influential outlying observations; 7 extreme pps
 simp_outcome<-simp_outcome[!simp_outcome$code %in% influential, ] #removes all data for extreme pps (-21 observations) (1035 in total)
 
 #z-standardise
@@ -260,10 +264,10 @@ simp_outcome$pretest<-scale(simp_outcome$pretest)
 simp_outcome$posttest<-scale(simp_outcome$posttest)
 simp_outcome$followup<-scale(simp_outcome$followup)
 
-#re-run lines 208-209, 259
+#re-run lines 192-193, 243
 
-#lack of perfect multicolinearity
-multicolinearity_test<-vif(lmer_simp_b, type="predictor") #grit (2.1), gse (2)
+#lack of perfect (5<GVIF) multicolinearity
+multicolinearity_test<-vif(lmer_simp_b, type="predictor") #grit (2.2), gse (2)
 multicolinearity_test<-vif(lmer_simp_e, type="predictor") #pretest (2.1), grit (2.2), gse (2)
 multicolinearity_test<-vif(lmer_simp_m, type="predictor") #posttest (2.4), grit (2.2), gse (2.1)
 
@@ -276,7 +280,42 @@ print(summary(lmer_simp_b),cor=F)
 print(summary(lmer_simp_e),cor=F)
 print(summary(lmer_simp_m),cor=F)
 
-########################################################## CHOICE #####################################################################
+#visualisation of significant CRB effects
+
+#model parameters
+x<-seq(from=-3,to=3,by=1)
+
+#Simple RT: significant effect of GSE in Dual Group at Post-Training
+intercept<--0.33+0.65
+slope<--0.03+0.27
+y<-intercept+slope*x
+
+filepath=here("figs/gse_posttest_simp_rt.png")
+png(filepath,width=514,height=570)
+plot(x, y, type="l", col="blue", lwd=2, xlab="Standardised Self-Efficacy", ylab="Standardised Simple RT", 
+     main = "Effect of Self-Efficacy on Post-Training Simple RT", ylim=c(-3, 3))
+points(0, intercept, col = "blue", pch = 19)
+legend("topright", legend="Dual Group", col="blue", lwd=2)
+dev.off() #visualises and saves
+
+#simple RT: significant effect of Grit in Simple & Switching Group at Follow-Up
+coefficients<-list(list(intercept=-0.11, slope=0.22, color="red"),
+                   list(intercept=-0.11+0.16, slope=0.22-0.35, color="green"))
+
+filepath=here("figs/grit_followup_simp_rt.png")
+png(filepath,width=514,height=570)
+plot(x, x, type = "n", xlab = "Standardised Grit", ylab = "Standardised Simple RT", 
+     main = "Effects of Grit on Follow-Up Simple RT")
+for (coef in coefficients) {y <- coef$intercept + coef$slope * x
+lines(x, y, col = coef$color, lwd = 2)
+points(0, coef$intercept, col = coef$color, pch = 19)}
+legend("topright", legend=c("Simple Group", "Switching Group"), col=c("red", "green"), lwd=2)
+dev.off() #visualises and saves
+
+
+
+
+#################################################################### CHOICE #######################################################################################
 
 choi_outcome<-processed_data %>%
   select(code,site,group,sessionId,demo.age.years,grit,tis,gse,choi_draw_rt,choi_numb_rt,choi_shap_rt) %>%
@@ -299,15 +338,17 @@ lmer_choi_b<-lmer(pretest~group+(1|code)+(1|material)+demo.age.years+grit*group+
 
 #checks
 
-#normality of residual distribution
+#non-normality of residual distribution
 qqnorm(resid(lmer_choi_b))
 qqnorm(resid(lmer_choi_e))
 qqnorm(resid(lmer_choi_m))
 
-#homoscedasticity of variance and linearity of model relationships
+#minor heteroscedasticity of variance
 plot(lmer_choi_b)
 plot(lmer_choi_e)
 plot(lmer_choi_m)
+
+#outlier removal and transformations to rectify distributional violations
 
 #remove >=200ms RTs and 3MAD+median< RTs
 pps_exclude1<-choi_outcome%>%
@@ -331,7 +372,7 @@ pps_exclude2<-choi_outcome%>%
   filter(followup > (medianRT3+MAD_3_RT3)) %>%
   pull(code) %>% unique() #5 extreme Ids
 
-extremes<-union(pps_exclude1,pps_exclude2) #5 extreme Ids
+extremes<-union(pps_exclude1,pps_exclude2)
 choi_outcome<-choi_outcome %>%
   filter(!choi_outcome$code %in% extremes) #removes all data for extreme pps (-15 observations)
 
@@ -340,7 +381,7 @@ choi_outcome$pretest<-log(choi_outcome$pretest)
 choi_outcome$posttest<-log(choi_outcome$posttest)
 choi_outcome$followup<-log(choi_outcome$followup)
 
-#re-run lines 310-311 and 316
+#re-run lines 331-332 and 337
 
 #cooks distance method
 cooksD<-cooks.distance(lmer_choi_b)
@@ -362,7 +403,7 @@ choi_outcome$pretest<-scale(choi_outcome$pretest)
 choi_outcome$posttest<-scale(choi_outcome$posttest)
 choi_outcome$followup<-scale(choi_outcome$followup)
 
-#re-run lines 310-311 and 316
+#re-run lines 331-332 and 337
 
 #lack of perfect multicolinearity
 multicolinearity_test<-vif(lmer_choi_b, type="predictor") #grit (2.3), gse (2.2)
@@ -378,7 +419,10 @@ print(summary(lmer_choi_b),cor=F)
 print(summary(lmer_choi_e),cor=F)
 print(summary(lmer_choi_m),cor=F)
 
-########################################################## SWITCH #####################################################################
+
+
+
+################################################################### SWITCHING #####################################################################################
 
 swit_outcome<-processed_data %>%
   select(code,site,group,sessionId,demo.age.years,grit,tis,gse,swit_draw_rt,swit_numb_rt,swit_shap_rt) %>%
@@ -404,15 +448,17 @@ lmer_swit_e<-lmer(posttest~group*pretest+(1|code)+(1|material)+demo.age.years+gr
 
 #checks
 
-#normality of residual distribution
+#non-normality of residual distribution
 qqnorm(resid(lmer_swit_b))
 qqnorm(resid(lmer_swit_e))
 qqnorm(resid(lmer_swit_m))
 
-#homoscedasticity of variance and linearity of model relationships
+#minor heteroscedasticity of variance
 plot(lmer_swit_b)
 plot(lmer_swit_e)
 plot(lmer_swit_m)
+
+#outlier removal and transformations to rectify distributional violations
 
 #remove >=200ms RTs and 3MAD+median< RTs
 pps_exclude1<-swit_outcome%>%
@@ -445,7 +491,7 @@ swit_outcome$pretest<-log(swit_outcome$pretest)
 swit_outcome$posttest<-log(swit_outcome$posttest)
 swit_outcome$followup<-log(swit_outcome$followup)
 
-#re-run lines 413, 420-421
+#re-run lines 439, 446-447
 
 #cooks distance method
 cooksD<-cooks.distance(lmer_swit_b)
@@ -467,7 +513,7 @@ swit_outcome$pretest<-scale(swit_outcome$pretest)
 swit_outcome$posttest<-scale(swit_outcome$posttest)
 swit_outcome$followup<-scale(swit_outcome$followup)
 
-#re-run lines 413, 420-421
+#re-run lines 439, 446-447
 
 #lack of perfect multicolinearity
 multicolinearity_test<-vif(lmer_swit_b, type="predictor") #grit (2.3), gse (2.2)
@@ -482,6 +528,38 @@ lmer_swit_m<-lmer(followup~group*posttest+(1|site)+(1|code)+(1|material)+demo.ag
 print(summary(lmer_swit_b),cor=F)
 print(summary(lmer_swit_e),cor=F)
 print(summary(lmer_swit_m),cor=F)
+
+#visualisation of significant CRB effects
+
+#Switching RT: significant effect of Grit in Simple Group at Baseline
+intercept<--0.01
+slope<--0.22
+y<-intercept+slope*x
+
+filepath=here("figs/grit_baseline_swit_rt.png")
+png(filepath,width=514,height=570)
+plot(x, y, type="l", col="red", lwd=2, xlab="Standardised Grit", ylab="Standardised Switching RT", 
+     main = "Effect of Grit on Baseline Switching RT", ylim=c(-3, 3))
+points(0, intercept, col = "red", pch = 19)
+legend("topright", legend="Simple Group", col="red", lwd=2)
+dev.off() #visualises and saves
+
+#Switching RT: significant effect of Grit in Choice Group at Follow-Up
+intercept<--0.17+0.11
+slope<--0.10+0.15
+y<-intercept+slope*x
+
+filepath=here("figs/grit_followup_swit_rt.png")
+png(filepath,width=514,height=570)
+plot(x, y, type="l", col="orange", lwd=2, xlab="Standardised Grit", ylab="Standardised Switching RT", 
+     main = "Effect of Grit on Follow-Up Switching RT", ylim=c(-3, 3))
+points(0, intercept, col = "orange", pch = 19)
+legend("topright", legend="Choice Group", col="orange", lwd=2)
+dev.off() #visualises and saves
+
+
+
+
 
 ########################################################## DUAL #####################################################################
 
@@ -506,15 +584,17 @@ lmer_dual_m<-lmer(followup~group*posttest+(1|site)+(1|code)+demo.age.years+grit*
 
 #checks
 
-#normality of residual distribution
+#non-normality of residual distribution
 qqnorm(resid(lmer_dual_b))
 qqnorm(resid(lmer_dual_e))
 qqnorm(resid(lmer_dual_m))
 
-#homoscedasticity of variance and linearity of model relationships
+#minor heteroscedasticity of variance
 plot(lmer_dual_b)
 plot(lmer_dual_e)
 plot(lmer_dual_m)
+
+#outlier removal and transformations to rectify distributional violations
 
 #remove >=200ms RTs and 3MAD+median< RTs
 pps_exclude1<-dual_outcome%>%
@@ -547,7 +627,7 @@ dual_outcome$pretest<-log(dual_outcome$pretest)
 dual_outcome$posttest<-log(dual_outcome$posttest)
 dual_outcome$followup<-log(dual_outcome$followup)
 
-#re-run lines 517 and 525-256
+#re-run lines 576-577 and 583
 
 #singularity issue for all models - remove site for all, + material for maintanenace
 lmer_dual_b<-lmer(pretest~group+(1|code)+(1|material)+demo.age.years+grit*group+gse*group+tis*group,data=dual_outcome)
@@ -574,12 +654,12 @@ dual_outcome$pretest<-scale(dual_outcome$pretest)
 dual_outcome$posttest<-scale(dual_outcome$posttest)
 dual_outcome$followup<-scale(dual_outcome$followup)
 
-#re-run lines 525-256 and 575
+#re-run lines 576-577 and 583
 
 #lack of perfect multicolinearity
 multicolinearity_test<-vif(lmer_dual_b, type="predictor") #grit (2.3), gse (2.2)
 multicolinearity_test<-vif(lmer_dual_e, type="predictor") #pretest (2.3), grit (2.3), gse (2.2)
-multicolinearity_test<-vif(lmer_dual_m, type="predictor") #posttest (2.4), grit (2.3), gse (2.2)
+multicolinearity_test<-vif(lmer_dual_m, type="predictor") #posttest (2.3), grit (2.3), gse (2.2)
 
 #final models: (1|material) now functions for maintenance model
 lmer_dual_b<-lmer(pretest~group+(1|code)+(1|material)+demo.age.years+grit*group+gse*group+tis*group,data=dual_outcome)
@@ -589,6 +669,9 @@ lmer_dual_m<-lmer(followup~group*posttest+(1|code)+(1|material)+demo.age.years+g
 print(summary(lmer_dual_b),cor=F)
 print(summary(lmer_dual_e),cor=F)
 print(summary(lmer_dual_m),cor=F)
+
+
+
 
 ###################################################### REASONING #####################################################################
 
@@ -626,17 +709,6 @@ plot(lmer_reas_b)
 plot(lmer_reas_e)
 plot(lmer_reas_m)
 
-#z-standardise
-reas_outcome$demo.age.years<-scale(reas_outcome$demo.age.years)
-reas_outcome$grit<-scale(reas_outcome$grit)
-reas_outcome$tis<-scale(reas_outcome$tis)
-reas_outcome$gse<-scale(reas_outcome$gse)
-reas_outcome$pretest<-scale(reas_outcome$pretest)
-reas_outcome$posttest<-scale(reas_outcome$posttest)
-reas_outcome$followup<-scale(reas_outcome$followup)
-
-#re-run lines 625, 630 and 635
-
 #cooks distance method
 cooksD<-cooks.distance(lmer_reas_b)
 influential1<-reas_outcome$code[which(cooksD>1)]
@@ -646,6 +718,17 @@ cooksD<-cooks.distance(lmer_reas_m)
 influential3<-reas_outcome$code[which(cooksD>1)]
 influential<-union(influential1,influential2)
 influential<-union(influential,influential3) #no infuential outliers
+
+#z-standardise
+reas_outcome$demo.age.years<-scale(reas_outcome$demo.age.years)
+reas_outcome$grit<-scale(reas_outcome$grit)
+reas_outcome$tis<-scale(reas_outcome$tis)
+reas_outcome$gse<-scale(reas_outcome$gse)
+reas_outcome$pretest<-scale(reas_outcome$pretest)
+reas_outcome$posttest<-scale(reas_outcome$posttest)
+reas_outcome$followup<-scale(reas_outcome$followup)
+
+#re-run lines 688, 693, and 698
 
 #lack of perfect multicolinearity
 multicolinearity_test<-vif(lmer_reas_b, type="predictor") #grit (2.2), gse (2.1)
@@ -661,9 +744,40 @@ print(summary(lmer_reas_b),cor=F)
 print(summary(lmer_reas_e),cor=F)
 print(summary(lmer_reas_m),cor=F)
 
+#visualisation of significant CRB effects
+
+#Reasoning: significant effect of Mindset in Switching Group at Baseline
+intercept<--0.04+0.003
+slope<--0.02-0.22
+y<-intercept+slope*x
+
+filepath=here("figs/tis_baseline_reas.png")
+png(filepath,width=514,height=570)
+plot(x, y, type="l", col="green", lwd=2, xlab="Standardised Mindset", ylab="Standardised Reasoning Skill", 
+     main = "Effect of Mindset on Baseline Reasoning Skill", ylim=c(-3, 3))
+points(0, intercept, col = "green", pch = 19)
+legend("topright", legend="Switching Group", col="green", lwd=2)
+dev.off() #visualises and saves
+
+#Reasoning: significant effect of Grit in Switching Group at Followup
+intercept<-0.01-0.08
+slope<-0.04-0.16
+y<-intercept+slope*x
+
+filepath=here("figs/grit_followup_reas.png")
+png(filepath,width=514,height=570)
+plot(x, y, type="l", col="green", lwd=2, xlab="Standardised Grit", ylab="Standardised Reasoning Skill", 
+     main = "Effect of Grit on Follow-Up Reasoning Skill", ylim=c(-3, 3))
+points(0, intercept, col = "green", pch = 19)
+legend("topright", legend="Switching Group", col="green", lwd=2)
+dev.off() #visualises and saves
+
+
+
+
 ################################################## WORKING MEMORY ##################################################################
 
-#z-standardised due to entirely different scaling of task measures
+#z-standardised to allow aggregation of entirely differently scaled task measures
 processed_data2<-processed_data
 processed_data2$wm.binding.dprime<-scale(processed_data2$wm.binding.dprime)
 processed_data2$wm.updating.accuracy<-scale(processed_data2$wm.updating.accuracy)
@@ -688,19 +802,56 @@ lmer_wrme_m<-lmer(followup~group*posttest+(1|site)+(1|code)+(1|task)+demo.age.ye
 #singularity issue with enhancement & maintenance model
 isSingular(lmer_wrme_e) #true
 isSingular(lmer_wrme_m) #true
-print(summary(lmer_wrme_e),cor=F) #site explains no variance, #respectification below
+print(summary(lmer_wrme_e),cor=F) #site and code explains no variance, #respectification below
 print(summary(lmer_wrme_m),cor=F) #site explains no variance, #respectification below
 lmer_wrme_e<-lmer(posttest~group*pretest+(1|code)+(1|task)+demo.age.years+grit*group+gse*group+tis*group,data=wrme_outcome) #must retain code
 lmer_wrme_m<-lmer(followup~group*posttest+(1|code)+(1|task)+demo.age.years+grit*group+gse*group+tis*group,data=wrme_outcome)
 
 #checks
 
-#normality of residual distribution
+#non-normality of residual distribution
 qqnorm(resid(lmer_wrme_b))
 qqnorm(resid(lmer_wrme_e))
 qqnorm(resid(lmer_wrme_m))
 
-#homoscedasticity of variance and linearity of model relationships
+#minor heteroscedasticity of variance
+plot(lmer_wrme_b)
+plot(lmer_wrme_e)
+plot(lmer_wrme_m)
+
+#cannot LOG transform to aid normalisation (contains -values), can check influence of outliers
+
+#cooks distance method
+cooksD<-cooks.distance(lmer_wrme_b)
+influential1<-which(cooksD>1)
+cooksD<-cooks.distance(lmer_wrme_e)
+influential2<-which(cooksD>1)
+cooksD<-cooks.distance(lmer_wrme_m)
+influential3<-which(cooksD>1) #no outliers deemed as influential
+
+#potential perfect multicolinearity
+multicolinearity_test<-vif(lmer_wrme_b, type="predictor") #*extreme multicolinearity in group w/ group*interaction effects
+multicolinearity_test<-vif(lmer_wrme_e, type="predictor") #*
+multicolinearity_test<-vif(lmer_wrme_m, type="predictor") #*
+
+#re-specification: removal of cognitive belief interaction effects with group
+lmer_wrme_b<-lmer(pretest~group+(1|site)+(1|code)+(1|task)+demo.age.years+grit+gse+tis,data=wrme_outcome)
+lmer_wrme_e<-lmer(posttest~group*pretest+(1|code)+(1|task)+demo.age.years+grit+gse+tis,data=wrme_outcome)
+lmer_wrme_m<-lmer(followup~group*posttest+(1|code)+(1|task)+demo.age.years+grit+gse+tis,data=wrme_outcome)
+
+#re-checks
+
+#lack of perfect multicolinearity
+multicolinearity_test<-vif(lmer_wrme_b, type="predictor") #none
+multicolinearity_test<-vif(lmer_wrme_e, type="predictor") #pretest (2)
+multicolinearity_test<-vif(lmer_wrme_m, type="predictor") #none
+
+#non-normality of residual distribution
+qqnorm(resid(lmer_wrme_b))
+qqnorm(resid(lmer_wrme_e))
+qqnorm(resid(lmer_wrme_m))
+
+#minor heteroscedasticity of variance
 plot(lmer_wrme_b)
 plot(lmer_wrme_e)
 plot(lmer_wrme_m)
@@ -711,28 +862,9 @@ influential1<-which(cooksD>1)
 cooksD<-cooks.distance(lmer_wrme_e)
 influential2<-which(cooksD>1)
 cooksD<-cooks.distance(lmer_wrme_m)
-influential3<-which(cooksD>1) #no outliers deemed as influential
-
-#lack of perfect multicolinearity
-multicolinearity_test<-vif(lmer_wrme_b, type="predictor") #*extreme multicolinearity in group w/ group*interaction effects
-multicolinearity_test<-vif(lmer_wrme_e, type="predictor") #*
-multicolinearity_test<-vif(lmer_wrme_m, type="predictor") #*
-
-#re-specification: removal of cognitive belief interaction effects with group
-lmer_wrme_b<-lmer(pretest~group+(1|site)+(1|code)+(1|task)+demo.age.years+grit+gse+tis,data=wrme_outcome)
-lmer_wrme_e<-lmer(posttest~group*pretest+(1|code)+(1|task)+demo.age.years+grit+gse+tis,data=wrme_outcome)
-lmer_wrme_m<-lmer(followup~group*posttest+(1|code)+(1|task)+demo.age.years+grit+gse+tis,data=wrme_outcome)
-
-#re-check for influential outliers
-#cooks distance method
-cooksD<-cooks.distance(lmer_wrme_b)
-influential1<-which(cooksD>1)
-cooksD<-cooks.distance(lmer_wrme_e)
-influential2<-which(cooksD>1)
-cooksD<-cooks.distance(lmer_wrme_m)
 influential3<-which(cooksD>1)
 wrme_outcome<-wrme_outcome[-influential2, ] #no outliers deemed as influential
-#value 274 outlying is extremely outlying and low on enhancement model; removal did not bias or impact estimates/statistical significance
+#value 274 outlying is extremely outlying and low on the enhancement model; removal did not bias or impact estimates/statistical significance, so was retained
 
 #z-standardisation - corrects distribution differences of means for each wrme measure to be aligned; assumption that all measure wrme equally
 wrme_outcome$demo.age.years<-scale(wrme_outcome$demo.age.years)
@@ -751,6 +883,10 @@ lmer_wrme_m<-lmer(followup~group*posttest+(1|code)+(1|task)+demo.age.years+grit+
 print(summary(lmer_wrme_b),cor=F)
 print(summary(lmer_wrme_e),cor=F)
 print(summary(lmer_wrme_m),cor=F)
+
+
+
+
 
 ########################################################### MODEL EVALUATIONS ###########################################################################################
 
@@ -778,58 +914,55 @@ for(i in seq_along(model_list)) {
   ranova_results[[model_name]]<-ranova(model)
   r_squared_results[[model_name]]<-r.squaredGLMM(model,null)
 }
-print(icc_results)
-print(ranova_results)
-print(r_squared_results)
+print(icc_results) #intra-class correlation: variance explained by random effects
+print(ranova_results) #repeated measures anova: significance of random effects
+print(r_squared_results) #marginal & conditional r-squared: varianced explained by fixed/+random effects
 
-################################### post-hoc ANOVAs for checking cognitive beliefs between groups #######################################################################
 
-crb<-crb%>%
-  semi_join(processed_data,crb,by="code") #refines to only include final sample
+
+
+
+################################### POST-HOC ANOVAs FOR CHECKNG CRBs BETWEEN TRAINING GROUPS ######################################################################
+
+crb<-crb%>% semi_join(processed_data,crb,by="code") #refines to only include final sample
 
 #grit
-
 group_grit<-aov(grit~group, data=crb)
 summary(group_grit) #no sig. differences
 means_grit<-crb %>%
   group_by(group) %>%
   summarise(mean_grit=mean(grit))
 print(means_grit) #Simple=3.55, Choice=3.55, Switching=3.56, Dual=3.49
-#Duckworth & Quinn (2009): 3.4 is adult average (range=1-5)
 
 #assumptions
 qqnorm(group_grit$residuals) #minor violation, robust as large sample
 boxplot(grit~group, xlab='training intervention', ylab='grit', data=crb) #minor violation, robust as similar group sizes
 
 #tis 
-
 group_tis<-aov(tis~group, data=crb)
 summary(group_tis) #no sig. differences
 means_tis<-crb %>%
   group_by(group) %>%
   summarise(mean_tis=mean(tis))
 print(means_tis) #Simple=4.05, Choice=4.12, Switching=4.10, Dual=4.10
-#slightly higher than average (3.5), (range=1-6)
 
 #assumptions
 qqnorm(group_tis$residuals) #minor violation, robust as large sample
 boxplot(tis~group, xlab='training intervention', ylab='tis', data=crb) #minor violation, robust as similar group sizes
 
 #gse 
-
 group_gse<-aov(gse~group, data=crb)
 summary(group_gse) #no sig. difference
 means_gse<-crb %>%
   group_by(group) %>%
   summarise(mean_gse=mean(gse))
 print(means_gse) #Switch=3.13, Simple=3.24, Choice=3.16, Dual=3.2
-#slightly higher than average scores (Scholz et al., 2002: 2.9-3.1), (range=1-4) 
 
 #assumptions
 qqnorm(group_gse$residuals) #minor violation, robust as large sample
 boxplot(gse~group, xlab='training intervention', ylab='gse', data=crb) #minor violation, robust as similar group sizes
 
-#LOG-transformation
+#LOG-transformation to resolve distributional violations
 crb$grit<-log(crb$grit)
 crb$tis<-log(crb$tis)
 crb$gse<-log(crb$gse)
@@ -838,101 +971,7 @@ crb$gse<-log(crb$gse)
 group_grit<-aov(grit~group, data=crb)
 group_tis<-aov(tis~group, data=crb)
 group_gse<-aov(gse~group, data=crb)
+
 summary(group_grit)
 summary(group_tis)
 summary(group_gse)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-#model parameters
-x<-seq(from=-3,to=3,by=1)
-
-#simple rt post-training: dual.gse
-intercept<--0.33+0.65
-slope<--0.03+0.27
-y<-intercept+slope*x
-
-filepath=here("figs/gse_posttest_simp_rt.png")
-png(filepath,width=514,height=570)
-plot(x, y, type="l", col="blue", lwd=2, xlab="Standardised Self-Efficacy", ylab="Standardised Simple RT", 
-     main = "Effect of Self-Efficacy on Post-Training Simple RT", ylim=c(-3, 3))
-points(0, intercept, col = "blue", pch = 19)
-legend("topright", legend="Dual Group", col="blue", lwd=2)
-dev.off()
-
-#simple rt follow-up: simple.grit, switching.grit
-coefficients<-list(list(intercept=-0.11, slope=0.22, color="red"),
-  list(intercept=-0.11+0.16, slope=0.22-0.35, color="green"))
-
-filepath=here("figs/grit_followup_simp_rt.png")
-png(filepath,width=514,height=570)
-plot(x, x, type = "n", xlab = "Standardised Grit", ylab = "Standardised Simple RT", 
-     main = "Effects of Grit on Follow-Up Simple RT")
-for (coef in coefficients) {y <- coef$intercept + coef$slope * x
-  lines(x, y, col = coef$color, lwd = 2)
-  points(0, coef$intercept, col = coef$color, pch = 19)}
-legend("topright", legend=c("Simple Group", "Switching Group"), col=c("red", "green"), lwd=2)
-dev.off()
-
-#switching rt baseline: simple.grit
-intercept<--0.01
-slope<--0.22
-y<-intercept+slope*x
-
-filepath=here("figs/grit_baseline_swit_rt.png")
-png(filepath,width=514,height=570)
-plot(x, y, type="l", col="red", lwd=2, xlab="Standardised Grit", ylab="Standardised Switching RT", 
-     main = "Effect of Grit on Baseline Switching RT", ylim=c(-3, 3))
-points(0, intercept, col = "red", pch = 19)
-legend("topright", legend="Simple Group", col="red", lwd=2)
-dev.off()
-
-#switching rt follow-up: choice.grit
-intercept<--0.17+0.11
-slope<--0.10+0.15
-y<-intercept+slope*x
-
-filepath=here("figs/grit_followup_swit_rt.png")
-png(filepath,width=514,height=570)
-plot(x, y, type="l", col="orange", lwd=2, xlab="Standardised Grit", ylab="Standardised Switching RT", 
-     main = "Effect of Grit on Follow-Up Switching RT", ylim=c(-3, 3))
-points(0, intercept, col = "orange", pch = 19)
-legend("topright", legend="Choice Group", col="orange", lwd=2)
-dev.off()
-
-#reasoning baseline: switching.mindset
-intercept<--0.04+0.003
-slope<--0.02-0.22
-y<-intercept+slope*x
-
-filepath=here("figs/tis_baseline_reas.png")
-png(filepath,width=514,height=570)
-plot(x, y, type="l", col="green", lwd=2, xlab="Standardised Mindset", ylab="Standardised Reasoning Skill", 
-     main = "Effect of Mindset on Baseline Reasoning Skill", ylim=c(-3, 3))
-points(0, intercept, col = "green", pch = 19)
-legend("topright", legend="Switching Group", col="green", lwd=2)
-dev.off()
-
-#reasoning followup: switching.grit
-intercept<-0.01-0.08
-slope<-0.04-0.16
-y<-intercept+slope*x
-
-filepath=here("figs/grit_followup_reas.png")
-png(filepath,width=514,height=570)
-plot(x, y, type="l", col="green", lwd=2, xlab="Standardised Grit", ylab="Standardised Reasoning Skill", 
-     main = "Effect of Grit on Follow-Up Reasoning Skill", ylim=c(-3, 3))
-points(0, intercept, col = "green", pch = 19)
-legend("topright", legend="Switching Group", col="green", lwd=2)
-dev.off()
