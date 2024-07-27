@@ -1,0 +1,86 @@
+This study used data requested from a larger study conducted by von Bastian et al. (2022) under
+collaboration between the University of Sheffield, University of Montreal, and Medical School of 
+Hamburg. The author of this thesis does not have permission to share data or materials.
+
+Because of this, the current codebook identifies variables used within the script. This is to 
+facilitate more fluid interaction with - and understanding of - the variables used to compile results.
+
+
+
+######################## RAW DATA CSVs
+
+These notations title the original raw data CSVs which were loaded into R, and identify the specific
+measures taken within each file which were extracted for usage within later analysis.
+ 
+# data-frames
+
+home_survey = Home Assessment Survey (inc. code, site, Grit, demographics)
+lab_survey = Lab Survey Data compiled across all three time-points (inc. Mindset, Self-Efficacy)
+filter = Inclusions Tracker to identify how many sessions participants had completed
+
+simple_data = Lab Assessment Data compiled across all three time-points*, (inc. Simple RT Task)
+choice_data = *, (inc. Choice RT Task)
+switch_data = *, (inc. Switching RT Task)
+dual_data = *, (inc. Dual-attention RT Task)
+wm_updating = *, (inc. Working Memory Updating Task)
+wm_binding = *, (inc. Working Memory Binding Task)
+wm_reproduction = *, (inc. Working Memory Reproduction Error Task)
+reas_rapm = *, (inc. Reasoning Matrix (Reasoning) Task)
+reas_lettersets = *, (inc. Reasoning Lettersets Task)
+reas_paperfolding = *, (inc. Reasoning Paperfolding Task)
+
+
+
+######################## PROCESSED DATA
+
+These notations identify each variable within the processed data used to conduct final analyses. There
+are no missing values within this data as missingness breached eligibility for participant inclusion.
+
+processed_data = Processed Data compiling all necessary variables for analysis, inc.
+
+# variables
+
+'''code : Unique Confidential Participant Code'''
+'''group : Training Intervention Group - Factors are Simple, Choice, Switch, Dual'''
+'''site : Study Recruitment Site - Factors are Sheffield, Hamburg, Montreal'''
+'''demo.sex : Self-Declared Biological Sex - Factors are Female, Male, Prefer Not To Say'''
+'''demo.gender : Self-Declared Gender - Factors are Female, Male, Prefer Not To Say'''
+'''demo.age.years : Age in Years'''
+
+'''grit : Average Score on the Grit-S Scale (1-5)'''
+'''gse : Average Score on the General Self-Efficacy Scale (1-4)''
+'''tis : Average Score on the Theories of Intelligence Scale (1-6)'''
+
+
+All variables below have distinct scores subject to the time-point of assessment.
+
+'''sessionId : Time-Point of Assessment - Factors are PreTest (before training), 
+                                          PostTest (immediately after training), 
+                                          FollowUp (3 months following training)'''
+
+'''simp_draw_rt : Average Reaction-Time (in Milliseconds)**, for Simple RT Drawings Stimuli'''
+'''simp_numb_rt : **, for Simple RT Numbers Stimuli'''
+'''simp_shap_rt : **, for Simple RT Shapes Stimuli'''
+
+'''choi_draw_rt : **, for Choice RT Drawings Stimuli'''
+'''choi_numb_rt : **, for Choice RT Numbers Stimuli'''
+'''choi_shap_rt : **, for Choice RT Shapes Stimuli'''
+
+'''swit_draw_rt : **, for Switching RT Drawings Stimuli'''
+'''swit_numb_rt : **, for Switching RT Numbers Stimuli'''
+'''swit_shap_rt : **, for Switching RT Shapes Stimuli'''
+
+'''dual_draw_rt : **, for Dual-attention RT Drawings Stimuli'''
+'''dual_numb_rt : **, for Dual-attention RT Numbers Stimuli'''
+'''dual_shap_rt : **, for Dual-attention RT Shapes Stimuli'''
+
+'''assessment.reas.lettersets.score : Accuracy of Responses (in % Correct)***, for the Letter-Sets Task'''
+'''assessment.reas.paperfolding.score : ***, for the Paper-Folding Task'''  
+'''assessment.reas.rapm.score : ***, for the Matrix Reasoning Task''' 
+
+'''wm.binding.dprime : Accuracy when Association Matching (in Discrimination Parameter), for the Binding Task'''
+'''wm.updating.accuracy : ***, for the Updating Task''' 
+'''wm.reproduction.error : Deviation when Reproducing Images (in Degrees°), for the Reproduction Task'''
+
+
+
