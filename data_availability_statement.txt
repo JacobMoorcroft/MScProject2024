@@ -5,6 +5,6 @@ the study protocol, links to the OSF pre-registration, and avenues to contact th
 available at the below reference.
 
 von Bastian, C. C., Reinhartz, A., Udale, R. C., Grégoire, S., Essounni, M., Belleville, S., & 
-Strobach, T. (2022b). Mechanisms of processing speed training and transfer effects across the adult 
+Strobach, T. (2022). Mechanisms of processing speed training and transfer effects across the adult 
 lifespan: protocol of a multi-site cognitive training study. BMC Psychology, 10, 168. 
 https://doi.org/10.1186/s40359-022-00877-7 
